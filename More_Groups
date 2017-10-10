@@ -1,0 +1,546 @@
+# Um die Funktion "ausw" anwenden zu k?nnen, muss der entsprechende
+# Datensatz vorbereitet werden. In dem Datensatz m?ssen alle Variablen
+# entweder factor-Variablen oder numeric-/integer-Variablen sein.
+# Die Kategorien der factor-Variablen sollten gelabelt sein, um
+# in der Tabelle sinnvolle Bezeichnungen zu erhalten.
+# Die Funktion ist f?r Auswertungen mit zwei Gruppen ausgelegt
+# Die Funktion "ausw" hat drei Argumente:
+
+# - x:		Der zu verarbeitende Datensatz
+# - gruppe:	Vektor mit der Gruppenzugeh?rigkeit;
+# 		nur 1 (f?r Gruppe 1) und 2 (f?r Gruppe 2) als
+# 		Werte erlaubt
+# - var.names:	Vektor mit den Variablennamen. Die Reihenfolge muss
+#		mit der der Variablen im Datensatz ?bereinstimmen.
+#		Es werden in der Funktion diese Variablennamen
+#		f?r die Bezeichnung der Variablen verwendet.
+#		Zus?tzlich werden noch die Variablennamen aus
+#		dem Datensatz hinzugef?gt (names(x)).
+
+# Nach Anwendung der Funktion muss die x.table-Funktion durchgef?hrt
+# werden. Beispiel:
+
+# erg <- ausw(daten, gruppe = daten$gruppe, var.names = var.names)
+
+# require(xtable)
+# ab.t <- xtable(erg, align = c("l", "l", "c", "c", "c"))
+# print(ab.t, file = "test.tex", type = "latex", include.colnames = T, include.rownames = F,
+#	tabular.environment = "longtable", sanitize.text.function=function(x){x}, floating = F)
+
+# Falls in den Variablennamen (gemeint sind die Variablennamen im Datensatz, nicht die, die mit
+# "var.names" angegeben werden) Unterstriche (oder sonstige Sonderzeichen) vorkommen, so
+# m?ssen diese in der tex-Datei durch die entsprechenden tex-Befehle ersetzt werden.
+# Beispiel: "-" ersetzen durch "\_"
+
+# Falls in den Variablennamen Unterstriche (oder sonstige
+# Sonderzeichen) vorkommen, so m?ssen diese in der tex-Datei
+# durch die entsprechenden tex-Befehle ersetzt werden.
+# Beispiel: "-" ersetzen durch "\_"
+
+# In der tex-Datei kann au?erdem noch an geeigneten Stellen,
+# jeweils am Zeilenende, ein "\pagebreak" eingef?gt werden,
+# um an dieser Stelle eine neue Seite zu beginnen.
+
+# Zudem muss ggf. noch die Tabellen?berschrift (\caption, etc.) angepasst werden.
+
+
+
+
+ausw <- function(x, gruppe, var.names, percent.vertical = T, data.names = T, nonparametric, landscape = F,
+	pos.pagebr = NULL, paired = F, var.equal = T, correct.cat = F, correct.wilcox = T, silent = T, non.par, p.values = T) {
+
+	pos <- c()
+	pos.i <- 0
+	pos.mult <- 1
+	for (i in 1:ncol(x)) {
+		if (is.factor(x[, i])) {
+			a <- table(x[, i], gruppe)
+			d <- table(x[, i])
+			if (percent.vertical == T) {
+				b <- prop.table(as.matrix(table(x[, i], gruppe)), 2)
+				e <- prop.table(as.matrix(table(x[, i])), 2)
+				ab <- data.frame(round(cbind(a[, 1], b[, 1]*100), 1))
+				for (k in 2:ncol(a)) {
+					ab <- data.frame(round(cbind(ab, a[, k], b[, k]*100), 1))
+				}
+				ab <- data.frame(round(cbind(ab, as.vector(d), as.vector(e)*100), 1))
+
+			for (j in 1:ncol(ab)) {
+				for (k in 1:nrow(ab)) {
+					ab[k, j] <- paste(ab[k, j], paste(paste("(", ab[k, (j + 1)], sep = ""), "\\%)", sep = ""))
+				}
+			}
+			} else {
+				b <- prop.table(as.matrix(table(x[, i], gruppe)), 1)
+				ab <- data.frame(round(cbind(a[, 1], b[, 1]*100), 1))
+				for (k in 2:ncol(a)) {
+					ab <- data.frame(round(cbind(ab, a[, k], b[, k]*100), 1))
+				}
+				ab <- data.frame(round(cbind(ab, as.vector(d)), 1))
+			for (j in 1:(ncol(ab) - 1)) {
+				for (k in 1:nrow(ab)) {
+					ab[k, j] <- paste(ab[k, j], paste(paste("(", ab[k, (j + 1)], sep = ""), "\\%)", sep = ""))
+				}
+			}
+			}
+
+			index.delete <- (1:(length(levels(gruppe)) + 1)) * 2
+			ab <- ab[, -index.delete]
+
+			ab <- rbind(rep("", (length(levels(gruppe)) + 1)), ab, rep("", (length(levels(gruppe)) + 1)))
+
+			if (!(missing(var.names))) {
+				if (data.names) {
+					var.n1 <- var.names[i]
+					var.n2 <- paste(paste("(", names(x)[i], sep = ""), ")", sep = "")
+					var.n <- paste(var.n1, var.n2, sep = " ")
+				} else {
+					var.n <- var.names[i]
+				}
+			} else {
+				#var.n <- paste("\\multicolumn{2}{l}{", names(x)[i], "}", sep = "")
+				var.n <- names(x)[i]
+			}
+			ab <- cbind(NA, ab)
+
+			ab <- as.data.frame(ab)
+			ab[, 1] <- c(var.n, levels(x[, i]), "")
+			for (j in 1:length(levels(x[, i]))) {
+				ab[j + 1, 1] <- paste("\\hspace{0.5cm}", ab[j + 1, 1])
+			}
+
+			if (p.values) {
+				if (paired == F) {
+					pwert.a <- chisq.test(x[, i], gruppe, correct = correct.cat)$p.value
+					pwert <- format.r(pwert.a, 3)
+				} else {
+					pwert.a <- mcnemar.test(table(x[, i], gruppe), correct = correct.cat)$p.value
+					pwert <- format.r(pwert.a, 3)
+				}
+				if (pwert.a < 0.001) pwert <- "$<$0.001"
+				ab <- cbind(ab, c("", pwert, rep("", length(levels(x[, i])))))
+			}
+
+			pos.i.alt <- pos.i
+			pos.i <- pos.i + length(levels(x[, i])) + 2
+		} else {
+
+			a <- x[, i]
+			a.list <- list()
+			a.list[[(length(levels(gruppe)) + 1)]] <- na.omit(a)
+			n.list <- list
+			n.vector <- c()
+			for (k in 1:length(levels(gruppe))) {
+				a.list[[k]] <- na.omit(a[which(gruppe == levels(gruppe)[k])])
+				n.vector <- c(n.vector, length(a.list[[k]]))
+			}
+			n.vector <- c(n.vector, length(na.omit(a)))
+
+			ab <- matrix(NA, nrow = 6, ncol = (length(levels(gruppe)) + 1))
+			ab[1, ] <- n.vector
+			ab[2, ] <- format(round(sapply(a.list, mean, simplify = T), 1), nsmall = 1)
+			ab[3, ] <- format(round(sapply(a.list, sd, simplify = T), 2), nsmall = 2)
+
+			med.new <- function(x) {
+				x.med <- median(x)
+				if (as.integer(x.med / 0.25 / 2) == (x.med / 0.25 / 2) | as.integer(x.med / 0.25) != (x.med / 0.25)) {
+					round(x.med, 1) } else {
+					round(x.med, 2) }
+			}
+
+			ab[4, ] <- sapply(a.list, med.new, simplify = T)
+
+			inqur <- function(x) {
+				x.q1 <- quantile(x, type = 7)[2]
+				if (as.integer(x.q1 / 0.25 / 2) == (x.q1 / 0.25 / 2) | (as.integer(x.q1 / 0.25) != (x.q1 / 0.25))) {
+					x.q1 <- round(x.q1, 1) } else {
+					x.q1 <- round(x.q1, 2) }
+				x.q2 <- quantile(x, type = 7)[4]
+				if (as.integer(x.q2 / 0.25 / 2) == (x.q2 / 0.25 / 2) | (as.integer(x.q2 / 0.25) != (x.q2 / 0.25))) {
+					x.q2 <- round(x.q2, 1) } else {
+					x.q2 <- round(x.q2, 2) }
+				
+				paste(paste(x.q1, " -- ", sep = ""), x.q2, sep = "")
+			}
+
+			ab[5, ] <- sapply(a.list, inqur, simplify = T)
+
+			minmax <- function(x) paste(paste(round(min(x), 1), " -- ", sep = ""), round(max(x), 1), sep = "")
+
+			ab[6, ] <- sapply(a.list, minmax, simplify = T)
+
+			ab <- rbind(rep("", (length(levels(gruppe)) + 1)), ab, rep("", (length(levels(gruppe)) + 1)))
+
+			if (!(missing(var.names))) {
+				if (data.names == T) {
+					var.n1 <- var.names[i]
+					var.n2 <- paste(paste("(", names(x)[i], sep = ""), ")", sep = "")
+					var.n <- paste(var.n1, var.n2, sep = " ")
+				} else {
+					var.n <- var.names[i]
+				}
+			} else {
+				var.n <- names(x)[i]
+			} 
+
+			row.ab <- c("\\hspace{0.5cm} N", "\\hspace{0.5cm} Mean",
+			"\\hspace{0.5cm} Standard deviation",
+			"\\hspace{0.5cm} Median", "\\hspace{0.5cm} Q1 -- Q3",
+			"\\hspace{0.5cm} Minimum -- Maximum")
+
+			ab <- as.data.frame(ab)
+			ab <- cbind(NA, ab)
+			ab[, 1] <- c(var.n, row.ab, paste(" ", " "))
+
+			if (p.values) {
+				if (!(i %in% nonparametric)) {
+					aov.erg <- format.r(summary(aov(x[, i] ~ gruppe))[[1]]$'Pr(>F)'[1], 3)
+				} else {
+					aov.erg <- kruskal.test(x[, i] ~ gruppe)$p.value
+					aov.erg <- format.r(aov.erg, 3)
+				}
+				if (aov.erg == "0.000") aov.erg <- "$<$0.001"
+				if (is.na(non.par) & (i %in% nonparametric)) aov.erg <- paste(aov.erg, "$^b$", sep = "")
+				if (is.na(non.par) & (!(i %in% nonparametric))) aov.erg <- paste(aov.erg, "$^a$", sep = "")
+
+				ab <- cbind(ab, c("", aov.erg, rep("", 6)))
+			}
+
+			pos.i.alt <- pos.i
+			pos.i <- pos.i + 8
+		}
+		if (!silent) print(list("i" = i, "pos.i" = pos.i))
+		#print(ab)
+		names(ab) <- 1:3
+		if (i == 1) {ab1 <- ab} else {ab1 <- rbind(ab1, ab)}
+		#print(ab1)
+		if (landscape == F) {
+			if (is.null(pos.pagebr)) {
+				pos.pagebr <- 45
+				#if (is.na(non.par)) pos.pagebr <- 45
+			}
+			if (pos.i > pos.pagebr * pos.mult & i <= ncol(x)) {
+				pos <- c(pos, pos.i.alt)
+				#pos.i <- pos.i + 1 # erste Zeile auf neuer Seite
+				pos.mult <- pos.mult + 1
+			}
+		} else {
+			if (is.null(pos.pagebr)) {
+				pos.pagebr <- 22
+				#if (is.na(non.par)) pos.pagebr <- 30
+			}
+			if (pos.i > pos.pagebr * pos.mult & i <= ncol(x)) {
+				pos <- c(pos, pos.i.alt)
+				#pos.i <- pos.i - 1 # erste Zeile auf neuer Seite
+				pos.mult <- pos.mult + 1
+			}
+		}
+
+	}
+	return(list("descr" = ab1, "pos" = pos, "pos.pagebr" = pos.pagebr))
+}
+
+
+
+# Funktion zur Darstellung einer Zahl mit genau k Nachkommastellen:
+
+format.r <- function(x, k) format(round(x, k), nsmall = k)
+
+
+# which.col: "total" und "p-value" (ohne "groups") ist nicht sinnvoll und erzeugt einen Fehler.
+# Es sollte noch eine Warnung oder sogar ein Fehler eingef?gt werden, falls in der Gruppenvariable
+# fehlende Werte vorhanden sind. Daraus folgt n?mlich dass n != n1 + n2.
+
+# Falls bei factor-Variablen in den Auspr?gungen Sonderzeichen enthalten sind, f?hrt das zu Problemen.
+
+# Man k?nnte noch die Anzahl missing einf?gen (sowohl bei stetigen, als auch bei kategoriellen Daten;
+# Steuerung evtl. ?ber getrennte Parameter)
+
+# Funktion zur Erstellung der tex-Datei:
+
+des.stat <- function(x, gruppe, var.names, percent.vertical = T, data.names = T, nonparametric = F, file,
+	caption, tab.caption, pos.pagebreak, landscape = F, pos.pagebr = NULL, paired = F, var.equal = T,
+	correct.cat = F, correct.wilcox = T, silent = T, label = NULL, create = "pdf",
+	which.col = c("groups", "total", "p-values")) {
+
+	if (!("groups" %in% which.col) & !("total" %in% which.col)) stop("At least, either groups or total must be listed in which.col")
+
+	if ("p-values" %in% which.col) p.values <- T else p.values <- F
+
+	gruppe.na.index <- which(is.na(gruppe))
+	if (length(gruppe.na.index) != 0) {
+		x <- x[-gruppe.na.index, ]
+		gruppe <- gruppe[-gruppe.na.index]
+		warning("Fehlende Werte in der Gruppenvariable aufgetreten! Entsprechende Beobachtungen wurden entfernt!")
+	}
+
+
+	non.par <- NA
+
+	if (is.logical(nonparametric)) {
+		non.par <- nonparametric
+		if (nonparametric == T) nonparametric <- 1:nrow(x) else nonparametric <- c()
+	}
+
+	if (missing(x) | missing(gruppe)) stop("Parameters x and gruppe must be specified")
+
+	pos.pagebreak <- NULL
+
+	if (length(pos.pagebr) > 1) {
+		pos.pagebreak <- pos.pagebr
+		pos.pagebr <- NULL
+	}
+
+	# See sanitize in xtable.
+	r.s <- c("%", "{", "}", "&", "#")
+	r.s.a <- c(">", "<", "|")
+
+	if (!(missing(var.names))) {
+		for (i in 1:length(r.s)) var.names <- gsub(r.s[i], paste("\\\\", r.s[i], sep = ""), var.names, fixed = T)
+		for (i in 1:length(r.s.a)) var.names <- gsub(r.s.a[i], paste("$", r.s.a[i], "$", sep = ""), var.names, fixed = T)
+		var.names <- gsub("^", "\\verb|^|", var.names, fixed = TRUE)
+		var.names <- gsub("~", "\\~{}", var.names, fixed = TRUE)
+		var.names <- gsub("_", "\\_", var.names, fixed = TRUE)
+	}
+
+
+	for (i in 1:length(r.s)) names(x) <- gsub(r.s[i], paste("\\\\", r.s[i], sep = ""), names(x), fixed = T)
+	for (i in 1:length(r.s.a)) names(x) <- gsub(r.s.a[i], paste("$", r.s.a[i], "$", sep = ""), names(x), fixed = T)
+	names(x) <- gsub("^", "\\verb|^|", names(x), fixed = TRUE)
+	names(x) <- gsub("~", "\\~{}", names(x), fixed = TRUE)
+	names(x) <- gsub("_", "\\_", names(x), fixed = TRUE)
+
+	erg.a <- ausw(x, gruppe, var.names, percent.vertical = percent.vertical, data.names = data.names,
+		nonparametric = nonparametric, landscape = landscape, pos.pagebr = pos.pagebr, paired = paired,
+		var.equal = var.equal, silent = silent, non.par = non.par, correct.cat = correct.cat,
+		correct.wilcox = correct.wilcox, p.values = p.values)
+	erg <- erg.a$descr
+
+#	for (i in 1:length(r.s.a)) erg[, 1] <- gsub(r.s.a[i], paste("$", r.s.a[i], "$", sep = ""), erg[, 1], fixed = T)
+#	for (i in 1:length(r.s)) erg[, 1] <- gsub(r.s[i], paste("\\\\", r.s[i], sep = ""), erg[, 1], fixed = T)
+#	erg[, 1] <- gsub("^", "\\verb|^|", erg[, 1], fixed = TRUE)
+#	erg[, 1] <- gsub("~", "\\~{}", erg[, 1], fixed = TRUE)
+#	erg[, 1] <- gsub("_", "\\_", erg[, 1], fixed = TRUE)
+
+
+	erg.anz <- 0
+	erg.out <- c()
+	if ("groups" %in% which.col) erg.anz <- erg.anz + length(levels(gruppe)) else erg.out <- 2:(1 + length(levels(gruppe)))
+	if ("total" %in% which.col) erg.anz <- erg.anz + 1 else erg.out <- length(levels(gruppe)) + 2
+	erg.align <- c("l", "l", rep("c", erg.anz))
+	if (length(erg.out) != 0) erg <- erg[, -erg.out]
+
+	if ("p-values" %in% which.col) {
+		if (missing(tab.caption) & (!(is.na(non.par)))) {
+			if (non.par == F) {
+				if (paired == F) {
+					tab.caption <- "Descriptive statistics with p-values of unpaired t-tests or chi-squared tests
+						for continuous or categorical data, respectively."
+				} else {
+					tab.caption <- "Descriptive statistics with p-values of paired t-tests or McNemar's tests
+						for continuous or categorical data, respectively."
+				}
+			} else {
+				if (paired == F) {
+					tab.caption <- "Descriptive statistics with p-values of Mann-Whitney-U-tests or chi-squared tests
+						for continuous or categorical data, respectively."
+				} else {
+					tab.caption <- "Descriptive statistics with p-values of Wilcoxon signed-rank tests or McNemar's tests
+						for continuous or categorical data, respectively."
+				}
+			}
+		}
+
+		if (missing(tab.caption) & is.na(non.par)) {
+			if (paired) {
+				tab.caption <- "Descriptive Statistics with p-Values (paired t-tests or Wilcoxon signed-rank tests for continuous
+					data; McNemar's tests for categorical data)"
+			} else {
+				tab.caption <- "Descriptive Statistics with p-values (unpaired t-tests or Mann-Whitney-U-tests for continuous
+					data; chi-squared tests for categorical data)"
+			}
+		}
+		require(xtable, quietly = T)
+		ab.t <- xtable(erg, align = c(erg.align, "r"), caption = tab.caption, label = label)
+	} else {
+		if (missing(tab.caption)) {
+			tab.caption <- "Descriptive statistics"
+		}
+			require(xtable, quietly = T)
+			ab.t <- xtable(erg, align = erg.align, caption = tab.caption, label = label)
+	}
+
+
+	if (missing(caption)) caption <- levels(gruppe)
+
+
+
+	for (i in 1:length(r.s)) caption <- gsub(r.s[i], paste("\\\\", r.s[i], sep = ""), caption, fixed = T)
+	for (i in 1:length(r.s.a)) caption <- gsub(r.s.a[i], paste("$", r.s.a[i], "$", sep = ""), caption, fixed = T)
+	caption <- gsub("^", "\\verb|^|", caption, fixed = TRUE)
+	caption <- gsub("~", "\\~{}", caption, fixed = TRUE)
+
+	caption.c <- levels(gruppe)[1]
+	for (o in 2:length(levels(gruppe))) {
+		caption.c <- paste(caption.c, caption[o], sep = " & ")
+	}
+
+	pos <- list()
+	pos[[1]] <- 0
+
+
+	n.gr.c <- list()
+	for (o in 1:(length(levels(gruppe)) - 1)) {
+		n.gr.c[[o]] <- paste("(", "n = ", length(gruppe[which(gruppe == levels(gruppe)[o])]), ")", sep = "")
+	}
+	n.gr.c[[length(levels(gruppe))]] <- paste("(", "n = ", length(gruppe[which(gruppe == levels(gruppe)[length(levels(gruppe))])]), ")", sep = "")
+
+	n.gr.c1 <- n.gr.c
+	n.gr.c <- n.gr.c1[[1]]
+	for (o in 2:length(levels(gruppe))) {
+		n.gr.c <- paste(n.gr.c, n.gr.c1[[o]], sep = " & ")
+	}
+
+#	n1 <- paste("(", "n = ", length(gruppe[which(gruppe == levels(gruppe)[1])]), ")", sep = "")
+#	n2 <- paste("(", "n = ", length(gruppe[which(gruppe == levels(gruppe)[2])]), ")", sep = "")
+	n.total <- paste("(", "n = ", length(gruppe), ")", sep = "")
+
+	if ("p-values" %in% which.col & "total" %in% which.col) {
+		if (paired) {
+			foot.ab <- "$^a$t-test \\quad $^b$Wilcoxon signed-rank test"
+		} else {
+			foot.ab <- "$^a$t-test \\quad $^b$Mann-Whitney-U-test"
+		}
+
+		if (is.na(non.par)) {
+			command <- paste("\\hline", caption.c, "Total", "\\hspace{0.5cm} p-value \\\\",
+			n.gr.c, n.total, paste("\\hspace{1cm}\\\\
+			\\hline\\\\
+			\\endhead
+			\\hline\\noalign{\\smallskip}", foot.ab,
+			"\\endfoot ", sep = ""), sep = " & ")
+		} else {
+			command <- paste("\\hline", caption.c, "Total", "\\hspace{0.5cm} p-value \\\\",
+			n.gr.c, n.total, paste("\\hspace{1cm}\\\\
+			\\hline\\\\
+			\\endhead
+			\\hline\\\\",
+			"\\endfoot ", sep = ""), sep = " & ")
+		}
+	}
+
+	if ("p-values" %in% which.col & !("total" %in% which.col)) {
+		if (paired) {
+			foot.ab <- "$^a$t-test \\quad $^b$Wilcoxon signed-rank test"
+		} else {
+			foot.ab <- "$^a$t-test \\quad $^b$Mann-Whitney-U-test"
+		}
+
+		if (is.na(non.par)) {
+			command <- paste("\\hline", caption.c, "\\hspace{0.5cm} p-value \\\\",
+			n.gr.c, paste("\\hspace{1cm}\\\\
+			\\hline\\\\
+			\\endhead
+			\\hline\\noalign{\\smallskip}", foot.ab,
+			"\\endfoot ", sep = ""), sep = " & ")
+		} else {
+			command <- paste("\\hline", caption.c, "\\hspace{0.5cm} p-value \\\\",
+			n.gr.c, paste("\\hspace{1cm}\\\\
+			\\hline\\\\
+			\\endhead
+			\\hline\\\\",
+			"\\endfoot ", sep = ""), sep = " & ")
+		}
+	}
+
+	if ("total" %in% which.col & "groups" %in% which.col & !("p-values" %in% which.col)) {
+		command <- paste("\\hline", caption.c, "Total \\\\",
+		n.gr.c, paste(n.total, "\\\\
+		\\hline\\\\
+		\\endhead
+		\\hline\\\\",
+		"\\endfoot ", sep = ""), sep = " & ")
+	}
+
+	if ("total" %in% which.col & !("groups" %in% which.col) & !("p-values" %in% which.col)) {
+		command <- paste("\\hline", "Total \\\\",
+		paste(n.total, "\\\\
+		\\hline\\\\
+		\\endhead
+		\\hline\\\\",
+		"\\endfoot ", sep = ""), sep = " & ")
+	}
+
+	if (!("total" %in% which.col) & "groups" %in% which.col & !("p-values" %in% which.col)) {
+		command <- paste("\\hline", paste(caption.c, "\\\\"),
+		paste(n.gr.c, "\\\\
+		\\hline\\\\
+		\\endhead
+		\\hline\\\\",
+		"\\endfoot ", sep = ""), sep = " & ")
+	}
+
+	if (is.null(pos.pagebreak) & !is.null(erg.a$pos)) {
+		for (i in 1:length(erg.a$pos)) pos[[i + 1]] <- erg.a$pos[i]
+		command <- c(command, rep("\\pagebreak ", length(erg.a$pos)))
+	} else {
+		if (!is.null(pos.pagebreak)) {
+			for (i in 1:length(pos.pagebreak)) pos[[i + 1]] <- pos.pagebreak[i]
+			command <- c(command, rep("\\pagebreak ", length(pos.pagebreak)))
+		}
+	}
+
+
+	pc <- list("pos" = pos, "command" = command)
+
+
+	if (create == "pdf") {
+		if (landscape) {
+			cat("\\documentclass[landscape]{report} \n
+				\\usepackage[T1]{fontenc}\n
+				\\usepackage{longtable}
+				\\usepackage{a4wide}\n
+				\\usepackage[landscape]{geometry}
+				\\usepackage[justification=RaggedRight, singlelinecheck=off,
+					margin = 1cm, labelfont=bf, skip=4pt]{caption}\n
+				\\begin{document}\n
+				\\input{t.tex}\n
+				\\end{document}", file = "a.tex")
+		} else {
+			cat("\\documentclass{report} \n
+				\\usepackage[T1]{fontenc}\n
+				\\usepackage{longtable}
+				\\usepackage{a4wide}\n
+				\\usepackage[justification=RaggedRight, singlelinecheck=off,
+					margin = 1cm, labelfont=bf, skip=4pt]{caption}\n
+				\\begin{document}\n
+				\\input{t.tex}\n
+				\\end{document}", file = "a.tex")
+		}
+
+		print(ab.t, file = "t.tex", type = "latex", include.colnames = F, include.rownames = F,
+			tabular.environment = "longtable", sanitize.text.function=function(x){x}, floating = F,
+			hline.after = NULL, add.to.row = pc, caption.placement = "top")
+
+		require(tools, quietly = T)
+		texi2dvi("a.tex", pdf = T, clean = T, texi2dvi = "")
+
+		file.rename("a.pdf", file)
+
+		file.remove("a.tex")
+		file.remove("t.tex")
+
+	} else {
+		if (create == "tex") {
+			print(ab.t, file = file, type = "latex", include.colnames = F, include.rownames = F,
+				tabular.environment = "longtable", sanitize.text.function=function(x){x}, floating = F,
+				hline.after = NULL, add.to.row = pc, caption.placement = "top")
+		} else {
+			print(ab.t, type = "latex", include.colnames = F, include.rownames = F,
+				tabular.environment = "longtable", sanitize.text.function=function(x){x}, floating = F,
+				hline.after = NULL, add.to.row = pc, caption.placement = "top")
+		}
+
+	}
+
+}
